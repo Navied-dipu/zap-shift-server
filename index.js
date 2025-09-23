@@ -1,7 +1,7 @@
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
-import { MongoClient, ServerApiVersion } from "mongodb";
+import { MongoClient, ObjectId, ServerApiVersion } from "mongodb";
 dotenv.config();
 
 const app = express();
@@ -65,8 +65,20 @@ async function run() {
        res.status(200).send(parcels);
            } catch (err) {
         res.status(500).send({ message: "Server error", error: err.message });
-  }
-});
+        }
+      });
+      // delete
+      // Delete a parcel by id
+      app.delete("/parcels/:id", async (req, res) => {
+        try {
+        const id = req.params.id;
+       const result = await parcelCollectiondb.deleteOne({ _id: new ObjectId(id) });
+       res.send(result);
+       } catch (error) {
+       res.status(500).json({ message: "Server error", error: error.message });
+       }
+      });
+
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
