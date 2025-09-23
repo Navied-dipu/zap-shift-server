@@ -67,7 +67,26 @@ async function run() {
         res.status(500).send({ message: "Server error", error: err.message });
         }
       });
-      // delete
+
+
+      app.get("/parcels/:id", async (req, res) => {
+        try {
+        const id = req.params.id;
+
+
+         const parcel = await parcelCollectiondb.findOne({ _id: new ObjectId(id) });
+
+         if (!parcel) {
+         return res.status(404).send("❌ Parcel not found");
+         }
+
+          res.send(parcel);
+           } catch (err) {
+          console.error("❌ Error fetching parcel:", err.message);
+           res.status(500).send("❌ Failed to fetch parcel");
+         }
+          });
+
       // Delete a parcel by id
       app.delete("/parcels/:id", async (req, res) => {
         try {
