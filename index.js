@@ -2,10 +2,13 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import { MongoClient, ObjectId, ServerApiVersion } from "mongodb";
-dotenv.config();
+import Stripe from "stripe";
 
 const app = express();
 const port = process.env.PORT || 5000;
+dotenv.config();
+
+const stripe = new Stripe(process.env.PAYMENT_GETWAY_KEY);
 
 // === Middleware ===
 // Enable CORS for all routes
@@ -72,14 +75,11 @@ async function run() {
       app.get("/parcels/:id", async (req, res) => {
         try {
         const id = req.params.id;
-
-
          const parcel = await parcelCollectiondb.findOne({ _id: new ObjectId(id) });
 
          if (!parcel) {
          return res.status(404).send("❌ Parcel not found");
          }
-
           res.send(parcel);
            } catch (err) {
           console.error("❌ Error fetching parcel:", err.message);
@@ -97,6 +97,26 @@ async function run() {
        res.status(500).json({ message: "Server error", error: error.message });
        }
       });
+
+
+// Create Payment Intent
+app.post("/create-payment-intent", async (req, res) => {
+  try {
+    const amountInCents = req.body.amountInCents; // amount in smallest unit (cents)
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount:amountInCents,
+      currency:'usd',
+      payment_method_types: ["card"],
+    });
+
+    res.send({
+      clientSecret: paymentIntent.client_secret,
+    });
+  } catch (error) {
+    res.status(500).send({ error: error.message });
+  }
+});
 
 
     // Send a ping to confirm a successful connection
