@@ -17,8 +17,6 @@ app.use(cors());
 // Parse JSON
 app.use(express.json());
 
-
-
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.2z2tafq.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -27,109 +25,166 @@ const client = new MongoClient(uri, {
     version: ServerApiVersion.v1,
     strict: true,
     deprecationErrors: true,
-  }
+  },
 });
 
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
-    const  parcelCollectiondb=client.db('parcelDB').collection('parcels')
-
-    app.get('/parcels', async (req, res)=>{
-        const parcels= await parcelCollectiondb.find().toArray()
-        res.send(parcels)
-    })
+    const db = client.db("parcelDB");
+    const parcelCollectiondb = db.collection("parcels");
+    const paymentCollectiondb = db.collection("payments");
 
     app.post("/parcels", async (req, res) => {
-         try {
-          const newItem = req.body;
-             const result = await parcelCollectiondb.insertOne(newItem);
-             res.status(201).send(result)
-           }
-            catch (err) {
-           console.error(err);
-          res.status(500).send({ error: "Failed to add item" });
-         }
+      try {
+        const newItem = req.body;
+        const result = await parcelCollectiondb.insertOne(newItem);
+        res.status(201).send(result);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ error: "Failed to add item" });
+      }
     });
     // find
 
-        // Get parcels for a specific user by email
-      app.get("/parcels", async (req, res) => {
+    app.get("/parcels", async (req, res) => {
       try {
-       const email = req.query.email; // optional query parameter
-        const filter = email ? { sender_email: email } : {}; // filter by email if exists
+        const { email, role } = req.query;
+
+        let filter = {};
+        if (role !== "admin") {
+          filter = email ? { sender_email: email } : {};
+        }
 
         const parcels = await parcelCollectiondb
-       .find(filter)
-        .sort({ createdAt: -1 }) // latest first
-        .toArray();
+          .find(filter)
+          .sort({ createdAt: -1 })
+          .toArray();
 
-       res.status(200).send(parcels);
-           } catch (err) {
+        res.status(200).send(parcels);
+      } catch (err) {
         res.status(500).send({ message: "Server error", error: err.message });
+      }
+    });
+
+    app.get("/parcels/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const parcel = await parcelCollectiondb.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!parcel) {
+          return res.status(404).send("❌ Parcel not found");
         }
-      });
-
-
-      app.get("/parcels/:id", async (req, res) => {
-        try {
-        const id = req.params.id;
-         const parcel = await parcelCollectiondb.findOne({ _id: new ObjectId(id) });
-
-         if (!parcel) {
-         return res.status(404).send("❌ Parcel not found");
-         }
-          res.send(parcel);
-           } catch (err) {
-          console.error("❌ Error fetching parcel:", err.message);
-           res.status(500).send("❌ Failed to fetch parcel");
-         }
-          });
-
-      // Delete a parcel by id
-      app.delete("/parcels/:id", async (req, res) => {
-        try {
-        const id = req.params.id;
-       const result = await parcelCollectiondb.deleteOne({ _id: new ObjectId(id) });
-       res.send(result);
-       } catch (error) {
-       res.status(500).json({ message: "Server error", error: error.message });
-       }
-      });
-
-
-// Create Payment Intent
-app.post("/create-payment-intent", async (req, res) => {
-  try {
-    const amountInCents = req.body.amountInCents; // amount in smallest unit (cents)
-
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount:amountInCents,
-      currency:'usd',
-      payment_method_types: ["card"],
+        res.send(parcel);
+      } catch (err) {
+        console.error("❌ Error fetching parcel:", err.message);
+        res.status(500).send("❌ Failed to fetch parcel");
+      }
     });
 
-    res.send({
-      clientSecret: paymentIntent.client_secret,
+    // Delete a parcel by id
+    app.delete("/parcels/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await parcelCollectiondb.deleteOne({
+          _id: new ObjectId(id),
+        });
+        res.send(result);
+      } catch (error) {
+        res.status(500).json({ message: "Server error", error: error.message });
+      }
     });
-  } catch (error) {
-    res.status(500).send({ error: error.message });
-  }
-});
 
+    // Create Payment Intent
+    app.post("/create-payment-intent", async (req, res) => {
+      try {
+        const amountInCents = req.body.amountInCents; // amount in smallest unit (cents)
+
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amountInCents,
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
+
+        res.send({
+          clientSecret: paymentIntent.client_secret,
+        });
+      } catch (error) {
+        res.status(500).send({ error: error.message });
+      }
+    });
+    // get payments api
+    // 1️⃣ Get all payments (sorted latest first)
+    app.get("/payments", async (req, res) => {
+      try {
+        const email = req.query.email;
+        const filter = email ? { email } : {};
+        const payments = await paymentCollectiondb
+          .find(filter)
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.send(payments);
+      } catch (err) {
+        res.status(500).send("❌ Failed to fetch payments");
+      }
+    });
+
+    // 2️⃣ Mark parcel as paid & add to payments history
+    app.post("/payments", async (req, res) => {
+      try {
+        const { parcelId, amount, transactionId, paymentMethod, email } =
+          req.body;
+        // 🔹 Update parcel payment_status in parcels collection
+        const updateResult = await parcelCollectiondb.updateOne(
+          { _id: new ObjectId(parcelId) },
+          { $set: { payment_status: "paid" } }
+        );
+
+        if (updateResult.modifiedCount === 0) {
+          return res.status(404).send("❌ Parcel not found or already paid");
+        }
+
+        // 🔹 Add payment history record
+        const paymentRecord = {
+          parcelId: new ObjectId(parcelId),
+          email,
+          amount,
+          transactionId,
+          paymentMethod,
+          status: "succeeded",
+          createdAt: new Date(),
+          createdAtString: new Date().toISOString(),
+        };
+
+        const paymentResult = await paymentCollectiondb.insertOne(
+          paymentRecord
+        );
+
+        res.send({
+          paymentResult,
+          message: "✅ Payment marked as paid & history recorded",
+          paymentId: paymentResult.insertedId,
+        });
+      } catch (err) {
+        console.error("❌ Error processing payment:", err.message);
+        res.status(500).send("❌ Failed to process payment");
+      }
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!"
+    );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
   }
 }
 run().catch(console.dir);
-
-
 
 // Routes
 app.get("/", (req, res) => {
@@ -141,4 +196,6 @@ app.post("/data", (req, res) => {
 });
 
 // Start server
-app.listen(port, () => console.log(`Server running on http://localhost:${port}`));
+app.listen(port, () =>
+  console.log(`Server running on http://localhost:${port}`)
+);
