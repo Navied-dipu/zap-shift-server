@@ -33,9 +33,35 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     const db = client.db("parcelDB");
+    const usersCollectiondb = db.collection("users");
     const parcelCollectiondb = db.collection("parcels");
     const paymentCollectiondb = db.collection("payments");
 
+    // user collection
+    app.post("/users", async (req, res) => {
+      const email = req.body.email;
+      const existingUser = await usersCollectiondb.findOne({ email });
+      if (existingUser) {
+        // update profile & last login
+        const updateUser = await usersCollectiondb.updateOne(
+          { email }, // ✅ filter
+          {
+            $set: {
+              lastLogin: new Date().toISOString(),
+            },
+          }
+        );
+
+        return res.status(200).send({
+          message: "✅ User already exists, updated profile & last login",
+          updated: true,
+          updateUser,
+        });
+      }
+      const user = req.body;
+      const result = await usersCollectiondb.insertOne(user);
+      res.send(result);
+    });
     app.post("/parcels", async (req, res) => {
       try {
         const newItem = req.body;
